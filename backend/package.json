@@ -1,0 +1,13 @@
+{
+  "name": "voting-results",
+  "version": "1.0.0",
+  "description": "Results backend for voting app",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.18.0",
+    "pg": "^8.7.0"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}

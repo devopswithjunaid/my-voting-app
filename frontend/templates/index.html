@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voting App</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
+        .vote-button { padding: 20px 40px; margin: 20px; font-size: 18px; cursor: pointer; }
+        .cats { background-color: #f39c12; color: white; border: none; }
+        .dogs { background-color: #3498db; color: white; border: none; }
+    </style>
+</head>
+<body>
+    <h1>Voting App</h1>
+    <h2>Choose your preference:</h2>
+    
+    {% if vote %}
+        <h3>Thank you for voting for {{ vote }}!</h3>
+    {% else %}
+        <form method="POST">
+            <button name="vote" value="a" class="vote-button cats">{{ option_a }}</button>
+            <button name="vote" value="b" class="vote-button dogs">{{ option_b }}</button>
+        </form>
+    {% endif %}
+    
+    <p>Hostname: {{ hostname }}</p>
+</body>
+</html>

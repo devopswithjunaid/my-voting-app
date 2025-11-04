@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voting Results</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin: 50px; }
+        .result-bar { margin: 20px 0; }
+        .bar { height: 30px; margin: 10px 0; border-radius: 5px; }
+        .summer { background-color: #f39c12; }
+        .winter { background-color: #3498db; }
+        .count { color: white; line-height: 30px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Voting Results</h1>
+    <div id="results">
+        <div class="result-bar">
+            <div>Summer</div>
+            <div class="bar summer" id="summer-bar">
+                <span class="count" id="summer-count">0</span>
+            </div>
+        </div>
+        <div class="result-bar">
+            <div>Winter</div>
+            <div class="bar winter" id="winter-bar">
+                <span class="count" id="winter-count">0</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateResults() {
+            fetch('/api/votes')
+                .then(response => response.json())
+                .then(data => {
+                    const total = data.a + data.b || 1;
+                    const summerPercent = (data.a / total) * 100;
+                    const winterPercent = (data.b / total) * 100;
+                    
+                    document.getElementById('summer-bar').style.width = summerPercent + '%';
+                    document.getElementById('winter-bar').style.width = winterPercent + '%';
+                    document.getElementById('summer-count').textContent = data.a;
+                    document.getElementById('winter-count').textContent = data.b;
+                });
+        }
+        
+        setInterval(updateResults, 1000);
+        updateResults();
+    </script>
+</body>
+</html>
