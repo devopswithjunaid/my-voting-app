@@ -7,7 +7,6 @@ pipeline {
         ECR_REPOSITORY = 'my-voting-app'
         EKS_CLUSTER_NAME = 'secure-dev-env-cluster'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        EMAIL_RECIPIENT = 'devopswithjunaid@gmail.com'
     }
     
     triggers {
@@ -188,64 +187,16 @@ pipeline {
             '''
         }
         success {
-            script {
-                def message = """
-                🎉 PIPELINE SUCCESS! 🎉
-                
-                ✅ Build: #${BUILD_NUMBER}
-                ✅ Repository: ${ECR_REGISTRY}/${ECR_REPOSITORY}
-                ✅ Images Tagged: ${IMAGE_TAG}
-                
-                🚀 Deployed Components:
-                - Frontend: ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}
-                - Backend: ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}
-                - Worker: ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}
-                
-                🌐 Access your application via LoadBalancer URLs
-                📊 Check EKS cluster: ${EKS_CLUSTER_NAME}
-                
-                Time: ${new Date()}
-                """
-                
-                emailext (
-                    subject: "✅ Jenkins Pipeline SUCCESS - Voting App Build #${BUILD_NUMBER}",
-                    body: message,
-                    to: "${EMAIL_RECIPIENT}",
-                    mimeType: 'text/plain'
-                )
-                
-                echo "✅ Pipeline completed successfully!"
-                echo "🚀 Application deployed: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-                echo "📧 Success email sent to: ${EMAIL_RECIPIENT}"
-            }
+            echo "✅ Pipeline completed successfully!"
+            echo "🚀 Application deployed: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+            echo "🌐 Frontend: ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}"
+            echo "🌐 Backend: ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}"
+            echo "🌐 Worker: ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}"
         }
         failure {
-            script {
-                def message = """
-                ❌ PIPELINE FAILED! ❌
-                
-                ❌ Build: #${BUILD_NUMBER}
-                ❌ Repository: ${ECR_REGISTRY}/${ECR_REPOSITORY}
-                ❌ Failed at: ${env.STAGE_NAME}
-                
-                🔍 Check Jenkins logs for details:
-                ${BUILD_URL}console
-                
-                📊 EKS Cluster: ${EKS_CLUSTER_NAME}
-                
-                Time: ${new Date()}
-                """
-                
-                emailext (
-                    subject: "❌ Jenkins Pipeline FAILED - Voting App Build #${BUILD_NUMBER}",
-                    body: message,
-                    to: "${EMAIL_RECIPIENT}",
-                    mimeType: 'text/plain'
-                )
-                
-                echo "❌ Pipeline failed!"
-                echo "📧 Failure email sent to: ${EMAIL_RECIPIENT}"
-            }
+            echo "❌ Pipeline failed!"
+            echo "🔍 Check Jenkins logs for details: ${BUILD_URL}console"
+            echo "📊 EKS Cluster: ${EKS_CLUSTER_NAME}"
         }
     }
 }
