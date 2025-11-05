@@ -22,6 +22,42 @@ pipeline {
             }
         }
         
+        stage('Environment Check') {
+            steps {
+                sh '''
+                    echo "🔍 Checking available tools..."
+                    echo "Docker: $(which docker || echo 'Not found')"
+                    echo "AWS CLI: $(which aws || echo 'Not found')"
+                    echo "Kubectl: $(which kubectl || echo 'Not found')"
+                    
+                    # Check Docker daemon
+                    if command -v docker >/dev/null 2>&1; then
+                        docker --version || echo "Docker not accessible"
+                        docker info || echo "Docker daemon not running"
+                    else
+                        echo "❌ Docker not installed on Jenkins agent"
+                        exit 1
+                    fi
+                    
+                    # Check AWS CLI
+                    if command -v aws >/dev/null 2>&1; then
+                        aws --version
+                    else
+                        echo "❌ AWS CLI not installed on Jenkins agent"
+                        exit 1
+                    fi
+                    
+                    # Check kubectl
+                    if command -v kubectl >/dev/null 2>&1; then
+                        kubectl version --client
+                    else
+                        echo "❌ kubectl not installed on Jenkins agent"
+                        exit 1
+                    fi
+                '''
+            }
+        }
+        
         stage('Test') {
             parallel {
                 stage('Test Frontend') {
@@ -29,7 +65,6 @@ pipeline {
                         dir('frontend') {
                             sh '''
                                 echo "🧪 Testing Frontend (Flask)..."
-                                # Check if python3 exists, if not skip test
                                 if command -v python3 >/dev/null 2>&1; then
                                     python3 --version
                                     python3 -m py_compile app.py
@@ -47,7 +82,6 @@ pipeline {
                         dir('backend') {
                             sh '''
                                 echo "🧪 Testing Backend (Node.js)..."
-                                # Check if node exists, if not skip test
                                 if command -v node >/dev/null 2>&1; then
                                     node --version
                                     npm --version
@@ -67,7 +101,6 @@ pipeline {
                         dir('worker') {
                             sh '''
                                 echo "🧪 Testing Worker (.NET)..."
-                                # Check if dotnet exists, if not skip test
                                 if command -v dotnet >/dev/null 2>&1; then
                                     dotnet --version
                                     dotnet restore
@@ -91,12 +124,26 @@ pipeline {
                         dir('frontend') {
                             sh '''
                                 echo "🏗️ Building Frontend Docker image..."
-                                docker build -t ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} .
+                                
+                                # Build image
+                                docker build -t ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} . || {
+                                    echo "❌ Docker build failed for Frontend"
+                                    exit 1
+                                }
+                                
+                                # Tag images
                                 docker tag ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}
                                 docker tag ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-latest
                                 
                                 echo "📤 Pushing Frontend to ECR..."
-                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                                
+                                # Login to ECR
+                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY} || {
+                                    echo "❌ ECR login failed"
+                                    exit 1
+                                }
+                                
+                                # Push images
                                 docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}
                                 docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-latest
                                 
@@ -110,12 +157,26 @@ pipeline {
                         dir('backend') {
                             sh '''
                                 echo "🏗️ Building Backend Docker image..."
-                                docker build -t ${ECR_REPOSITORY}:backend-${IMAGE_TAG} .
+                                
+                                # Build image
+                                docker build -t ${ECR_REPOSITORY}:backend-${IMAGE_TAG} . || {
+                                    echo "❌ Docker build failed for Backend"
+                                    exit 1
+                                }
+                                
+                                # Tag images
                                 docker tag ${ECR_REPOSITORY}:backend-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}
                                 docker tag ${ECR_REPOSITORY}:backend-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-latest
                                 
                                 echo "📤 Pushing Backend to ECR..."
-                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                                
+                                # Login to ECR
+                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY} || {
+                                    echo "❌ ECR login failed"
+                                    exit 1
+                                }
+                                
+                                # Push images
                                 docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}
                                 docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-latest
                                 
@@ -129,12 +190,26 @@ pipeline {
                         dir('worker') {
                             sh '''
                                 echo "🏗️ Building Worker Docker image..."
-                                docker build -t ${ECR_REPOSITORY}:worker-${IMAGE_TAG} .
+                                
+                                # Build image
+                                docker build -t ${ECR_REPOSITORY}:worker-${IMAGE_TAG} . || {
+                                    echo "❌ Docker build failed for Worker"
+                                    exit 1
+                                }
+                                
+                                # Tag images
                                 docker tag ${ECR_REPOSITORY}:worker-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}
                                 docker tag ${ECR_REPOSITORY}:worker-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-latest
                                 
                                 echo "📤 Pushing Worker to ECR..."
-                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                                
+                                # Login to ECR
+                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY} || {
+                                    echo "❌ ECR login failed"
+                                    exit 1
+                                }
+                                
+                                # Push images
                                 docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}
                                 docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-latest
                                 
@@ -151,8 +226,15 @@ pipeline {
                 echo '🚀 Deploying to EKS cluster...'
                 sh '''
                     echo "⚙️ Configuring kubectl..."
-                    aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}
-                    kubectl cluster-info
+                    aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME} || {
+                        echo "❌ Failed to configure kubectl"
+                        exit 1
+                    }
+                    
+                    kubectl cluster-info || {
+                        echo "❌ Cannot connect to EKS cluster"
+                        exit 1
+                    }
                     
                     echo "🗄️ Deploying database and cache first..."
                     kubectl apply -f k8s/database.yaml
