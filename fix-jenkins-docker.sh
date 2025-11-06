@@ -1,27 +1,33 @@
 #!/bin/bash
 
-echo "🔧 Fixing Jenkins Docker Access..."
+echo "🔧 Fixing Jenkins Docker Integration..."
 
-# Stop current Jenkins container
-echo "Stopping Jenkins container..."
-docker stop jenkins || true
+# Delete existing Jenkins deployment
+echo "Deleting existing Jenkins deployment..."
+kubectl delete deployment jenkins -n jenkins || true
+kubectl delete configmap jenkins-init -n jenkins || true
 
-# Remove old container
-echo "Removing old Jenkins container..."
-docker rm jenkins || true
+# Wait for pods to terminate
+echo "Waiting for pods to terminate..."
+sleep 10
 
-# Start Jenkins with Docker socket mounted
-echo "Starting Jenkins with Docker access..."
-docker run -d \
-  --name jenkins \
-  -p 31667:8080 \
-  -p 50000:50000 \
-  -v jenkins_home:/var/jenkins_home \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /usr/bin/docker:/usr/bin/docker:ro \
-  --group-add $(getent group docker | cut -d: -f3) \
-  jenkins/jenkins:lts
+# Apply new Jenkins deployment with Docker support
+echo "Deploying Jenkins with Docker support..."
+kubectl apply -f jenkins-with-docker.yaml
 
-echo "✅ Jenkins restarted with Docker access!"
-echo "🔗 Access Jenkins at: http://localhost:31667"
-echo "⏳ Wait 2-3 minutes for Jenkins to start, then run your pipeline"
+# Wait for deployment to be ready
+echo "Waiting for Jenkins to be ready..."
+kubectl rollout status deployment/jenkins -n jenkins --timeout=300s
+
+# Check if Jenkins is running
+echo "Checking Jenkins status..."
+kubectl get pods -n jenkins
+
+echo "✅ Jenkins redeployed with Docker support!"
+echo "🌐 Access Jenkins at: http://10.0.3.235:31667/"
+echo "👤 Username: admin"
+echo "🔑 Password: SecureJenkins123!"
+
+# Test Docker access
+echo "Testing Docker access in Jenkins..."
+kubectl exec -n jenkins deployment/jenkins -- docker --version || echo "❌ Docker not accessible"
