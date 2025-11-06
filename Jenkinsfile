@@ -130,14 +130,18 @@ pipeline {
     
     post {
         always {
-            node {
-                sh '''
-                    # Cleanup local images
-                    docker rmi voting-app:frontend-${BUILD_NUMBER} || true
-                    docker rmi voting-app:backend-${BUILD_NUMBER} || true
-                    docker rmi voting-app:worker-${BUILD_NUMBER} || true
-                    docker system prune -f || true
-                '''
+            script {
+                try {
+                    sh '''
+                        # Cleanup local images
+                        docker rmi voting-app:frontend-${BUILD_NUMBER} || true
+                        docker rmi voting-app:backend-${BUILD_NUMBER} || true
+                        docker rmi voting-app:worker-${BUILD_NUMBER} || true
+                        docker system prune -f || true
+                    '''
+                } catch (Exception e) {
+                    echo "Cleanup failed: ${e.getMessage()}"
+                }
             }
         }
         success {
