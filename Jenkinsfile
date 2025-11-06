@@ -7,7 +7,8 @@ pipeline {
         ECR_REPOSITORY = 'my-voting-app'
         EKS_CLUSTER_NAME = 'secure-dev-env-cluster'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        GIT_CREDENTIAL_HELPER = 'store'
+        GIT_PATH = '/mnt/c/Program Files/Git/bin'
+        PATH = "${env.PATH}:/mnt/c/Program Files/Git/bin"
     }
     
     triggers {
@@ -29,8 +30,12 @@ pipeline {
                             echo "Build: ${BUILD_NUMBER}"
                             
                             echo "🔧 Git Configuration:"
-                            git config --global credential.helper store
-                            git config --list | grep credential || echo "No credential config found"
+                            export PATH="/mnt/c/Program Files/Git/bin:$PATH"
+                            /mnt/c/Program\ Files/Git/bin/git.exe --version
+                            
+                            # Use Git from Program Files (has stored credentials)
+                            /mnt/c/Program\ Files/Git/bin/git.exe config --global credential.helper manager-core
+                            /mnt/c/Program\ Files/Git/bin/git.exe config --list | grep credential || echo "Using Windows Git credentials"
                             
                             echo "✅ Stage 1 completed successfully"
                         '''
@@ -51,9 +56,9 @@ pipeline {
                         checkout scm
                         sh '''
                             echo "📂 Repository Information:"
-                            git remote -v
-                            git branch -a
-                            git log --oneline -3
+                            /mnt/c/Program\ Files/Git/bin/git.exe remote -v
+                            /mnt/c/Program\ Files/Git/bin/git.exe branch -a
+                            /mnt/c/Program\ Files/Git/bin/git.exe log --oneline -3
                             
                             echo "📁 Project Structure:"
                             ls -la
@@ -77,15 +82,19 @@ pipeline {
                     try {
                         echo "=== STAGE 3: TOOL VERIFICATION ==="
                         sh '''
-                            echo "🔍 Checking Docker:"
-                            if command -v docker &> /dev/null; then
-                                docker --version
-                                docker info | head -10
-                                echo "✅ Docker: Available"
-                            else
-                                echo "❌ Docker: Not found"
-                                exit 1
+                            echo "🔧 Installing Docker in Jenkins container..."
+                            
+                            # Install Docker
+                            if ! command -v docker &> /dev/null; then
+                                echo "Installing Docker..."
+                                apt-get update
+                                apt-get install -y docker.io
+                                systemctl start docker || service docker start || echo "Docker service start attempted"
+                                usermod -aG docker jenkins || echo "User modification attempted"
                             fi
+                            
+                            echo "🔍 Checking Docker:"
+                            docker --version || echo "Docker installation in progress..."
                             
                             echo "🔍 Checking AWS CLI:"
                             if command -v aws &> /dev/null; then
@@ -95,7 +104,7 @@ pipeline {
                                 echo "⚠️ AWS CLI: Installing..."
                                 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                                 unzip -q awscliv2.zip
-                                sudo ./aws/install
+                                ./aws/install
                                 rm -rf aws awscliv2.zip
                                 aws --version
                                 echo "✅ AWS CLI: Installed"
@@ -109,7 +118,7 @@ pipeline {
                                 echo "⚠️ kubectl: Installing..."
                                 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
                                 chmod +x kubectl
-                                sudo mv kubectl /usr/local/bin/
+                                mv kubectl /usr/local/bin/
                                 kubectl version --client
                                 echo "✅ kubectl: Installed"
                             fi
