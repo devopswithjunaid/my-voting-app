@@ -7,8 +7,6 @@ pipeline {
         ECR_REPOSITORY = 'my-voting-app'
         EKS_CLUSTER_NAME = 'secure-dev-env-cluster'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        GIT_PATH = '/mnt/c/Program Files/Git/bin'
-        PATH = "${env.PATH}:/mnt/c/Program Files/Git/bin"
     }
     
     triggers {
@@ -30,12 +28,8 @@ pipeline {
                             echo "Build: ${BUILD_NUMBER}"
                             
                             echo "🔧 Git Configuration:"
-                            export PATH="/mnt/c/Program Files/Git/bin:$PATH"
-                            /mnt/c/Program\ Files/Git/bin/git.exe --version
-                            
-                            # Use Git from Program Files (has stored credentials)
-                            /mnt/c/Program\ Files/Git/bin/git.exe config --global credential.helper manager-core
-                            /mnt/c/Program\ Files/Git/bin/git.exe config --list | grep credential || echo "Using Windows Git credentials"
+                            git config --global credential.helper store
+                            git config --list | grep credential || echo "Git credentials configured"
                             
                             echo "✅ Stage 1 completed successfully"
                         '''
