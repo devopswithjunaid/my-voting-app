@@ -18,33 +18,27 @@ pipeline {
                         pwd
                         echo "Build: ${BUILD_NUMBER}"
                         
-                        echo "🔧 Installing Tools..."
-                        
-                        # Install Docker if not present
-                        if ! command -v docker &> /dev/null; then
-                            curl -fsSL https://get.docker.com -o get-docker.sh
-                            sh get-docker.sh
-                        fi
-                        
-                        # Install AWS CLI if not present
+                        echo "🔧 Installing AWS CLI..."
                         if ! command -v aws &> /dev/null; then
                             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                             unzip awscliv2.zip
-                            sudo ./aws/install
+                            ./aws/install --bin-dir /tmp/aws-cli --install-dir /tmp/aws-cli
+                            export PATH="/tmp/aws-cli:$PATH"
                             rm -rf awscliv2.zip aws/
                         fi
                         
-                        # Install kubectl if not present
+                        echo "🔧 Installing kubectl..."
                         if ! command -v kubectl &> /dev/null; then
                             curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                            sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-                            rm kubectl
+                            chmod +x kubectl
+                            mv kubectl /tmp/kubectl
+                            export PATH="/tmp:$PATH"
                         fi
                         
                         echo "🔧 Tools Check:"
-                        docker --version || echo "Docker not available"
-                        aws --version || echo "AWS CLI not available"
-                        kubectl version --client || echo "kubectl not available"
+                        docker --version || echo "Docker: Using host Docker socket"
+                        /tmp/aws-cli/aws --version || echo "AWS CLI: Installing..."
+                        /tmp/kubectl version --client || echo "kubectl: Installing..."
                         
                         echo "✅ Setup completed"
                     '''
@@ -97,8 +91,10 @@ pipeline {
             steps {
                 withCredentials([aws(credentialsId: 'aws-credentials')]) {
                     sh '''
+                        export PATH="/tmp/aws-cli:$PATH"
+                        
                         # ECR Login
-                        aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                        /tmp/aws-cli/aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
                         
                         # Tag and Push
                         docker tag voting-app:frontend-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}
@@ -117,8 +113,10 @@ pipeline {
             steps {
                 withCredentials([aws(credentialsId: 'aws-credentials')]) {
                     sh '''
+                        export PATH="/tmp/aws-cli:/tmp:$PATH"
+                        
                         # Update kubeconfig
-                        aws eks update-kubeconfig --region ${AWS_DEFAULT_REGION} --name ${EKS_CLUSTER_NAME}
+                        /tmp/aws-cli/aws eks update-kubeconfig --region ${AWS_DEFAULT_REGION} --name ${EKS_CLUSTER_NAME}
                         
                         # Update manifests
                         sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:frontend-.*|image: ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}|g" k8s/frontend.yaml
@@ -126,10 +124,10 @@ pipeline {
                         sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:worker-.*|image: ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}|g" k8s/worker.yaml
                         
                         # Deploy
-                        kubectl apply -f k8s/
-                        kubectl rollout status deployment/frontend
-                        kubectl rollout status deployment/backend
-                        kubectl rollout status deployment/worker
+                        /tmp/kubectl apply -f k8s/
+                        /tmp/kubectl rollout status deployment/frontend
+                        /tmp/kubectl rollout status deployment/backend
+                        /tmp/kubectl rollout status deployment/worker
                     '''
                 }
             }
@@ -138,8 +136,9 @@ pipeline {
         stage('📊 Verify') {
             steps {
                 sh '''
-                    kubectl get pods
-                    kubectl get svc
+                    export PATH="/tmp:$PATH"
+                    /tmp/kubectl get pods
+                    /tmp/kubectl get svc
                 '''
             }
         }
