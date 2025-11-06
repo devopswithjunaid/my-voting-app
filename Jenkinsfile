@@ -4,35 +4,33 @@ pipeline {
     environment {
         AWS_DEFAULT_REGION = 'us-west-2'
         ECR_REGISTRY = '767225687948.dkr.ecr.us-west-2.amazonaws.com'
+        ECR_REPOSITORY = 'voting-app'
         EKS_CLUSTER_NAME = 'secure-dev-env-cluster'
+        IMAGE_TAG = "${BUILD_NUMBER}"
     }
     
     stages {
-        stage('Setup Tools') {
+        stage('Verify Environment') {
             steps {
                 sh '''
-                    # Install AWS CLI
-                    apk add --no-cache aws-cli curl python3 py3-pip
-                    
-                    # Install kubectl
-                    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                    chmod +x kubectl
-                    mv kubectl /usr/local/bin/
-                    
-                    # Verify tools
-                    docker --version
-                    aws --version
-                    kubectl version --client
+                    echo "=== Environment Check ==="
+                    whoami
+                    pwd
+                    docker --version || echo "Docker not found"
+                    aws --version || echo "AWS CLI not found"
+                    kubectl version --client || echo "kubectl not found"
                 '''
             }
         }
         
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
                 checkout scm
                 sh '''
-                    echo "📂 Repository checked out"
+                    echo "=== Repository Structure ==="
                     ls -la
+                    echo "=== Checking Dockerfiles ==="
+                    find . -name "Dockerfile" -type f
                 '''
             }
         }
@@ -41,47 +39,64 @@ pipeline {
             steps {
                 withCredentials([aws(credentialsId: 'aws-credentials')]) {
                     sh '''
+                        echo "=== ECR Login ==="
                         aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                        echo "✅ ECR Login successful"
                     '''
                 }
             }
         }
         
-        stage('Build & Push Images') {
+        stage('Build Images') {
             parallel {
-                stage('Frontend') {
+                stage('Build Frontend') {
                     steps {
                         dir('frontend') {
                             sh '''
-                                docker build -t voting-app:frontend-${BUILD_NUMBER} .
-                                docker tag voting-app:frontend-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}
-                                docker push ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}
+                                echo "=== Building Frontend ==="
+                                docker build -t ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} .
+                                docker tag ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}
+                                echo "✅ Frontend image built"
                             '''
                         }
                     }
                 }
-                stage('Backend') {
+                stage('Build Backend') {
                     steps {
                         dir('backend') {
                             sh '''
-                                docker build -t voting-app:backend-${BUILD_NUMBER} .
-                                docker tag voting-app:backend-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:backend-${BUILD_NUMBER}
-                                docker push ${ECR_REGISTRY}/voting-app:backend-${BUILD_NUMBER}
+                                echo "=== Building Backend ==="
+                                docker build -t ${ECR_REPOSITORY}:backend-${IMAGE_TAG} .
+                                docker tag ${ECR_REPOSITORY}:backend-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}
+                                echo "✅ Backend image built"
                             '''
                         }
                     }
                 }
-                stage('Worker') {
+                stage('Build Worker') {
                     steps {
                         dir('worker') {
                             sh '''
-                                docker build -t voting-app:worker-${BUILD_NUMBER} .
-                                docker tag voting-app:worker-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}
-                                docker push ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}
+                                echo "=== Building Worker ==="
+                                docker build -t ${ECR_REPOSITORY}:worker-${IMAGE_TAG} .
+                                docker tag ${ECR_REPOSITORY}:worker-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}
+                                echo "✅ Worker image built"
                             '''
                         }
                     }
                 }
+            }
+        }
+        
+        stage('Push to ECR') {
+            steps {
+                sh '''
+                    echo "=== Pushing Images to ECR ==="
+                    docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}
+                    docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}
+                    docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}
+                    echo "✅ All images pushed to ECR"
+                '''
             }
         }
         
@@ -89,26 +104,30 @@ pipeline {
             steps {
                 withCredentials([aws(credentialsId: 'aws-credentials')]) {
                     sh '''
-                        # Update kubeconfig
+                        echo "=== Configuring kubectl ==="
                         aws eks update-kubeconfig --region ${AWS_DEFAULT_REGION} --name ${EKS_CLUSTER_NAME}
                         
-                        # Update manifests with new image tags
-                        sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:frontend-.*|image: ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}|g" k8s/frontend.yaml
-                        sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:backend-.*|image: ${ECR_REGISTRY}/voting-app:backend-${BUILD_NUMBER}|g" k8s/backend.yaml
-                        sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:worker-.*|image: ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}|g" k8s/worker.yaml
+                        echo "=== Updating Kubernetes Manifests ==="
+                        # Update image tags in manifests
+                        sed -i "s|image: .*voting-app:frontend.*|image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}|g" k8s/frontend.yaml
+                        sed -i "s|image: .*voting-app:backend.*|image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}|g" k8s/backend.yaml
+                        sed -i "s|image: .*voting-app:worker.*|image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}|g" k8s/worker.yaml
                         
-                        # Deploy database first
+                        echo "=== Deploying to EKS ==="
+                        # Deploy database components first
                         kubectl apply -f k8s/database.yaml
                         
-                        # Deploy applications
+                        # Deploy application components
                         kubectl apply -f k8s/frontend.yaml
                         kubectl apply -f k8s/backend.yaml
                         kubectl apply -f k8s/worker.yaml
                         
-                        # Wait for deployments
+                        echo "=== Waiting for deployments ==="
                         kubectl rollout status deployment/frontend --timeout=300s
                         kubectl rollout status deployment/backend --timeout=300s
                         kubectl rollout status deployment/worker --timeout=300s
+                        
+                        echo "✅ Deployment completed"
                     '''
                 }
             }
@@ -117,12 +136,13 @@ pipeline {
         stage('Verify Deployment') {
             steps {
                 sh '''
-                    echo "=== DEPLOYMENT STATUS ==="
-                    kubectl get pods
-                    kubectl get svc
+                    echo "=== Deployment Status ==="
+                    kubectl get pods -o wide
+                    kubectl get services
+                    kubectl get deployments
                     
-                    echo "=== APPLICATION HEALTH ==="
-                    kubectl get deployment
+                    echo "=== Service URLs ==="
+                    kubectl get svc -o wide | grep LoadBalancer || echo "No LoadBalancer services found"
                 '''
             }
         }
@@ -130,19 +150,14 @@ pipeline {
     
     post {
         always {
-            script {
-                try {
-                    sh '''
-                        # Cleanup local images
-                        docker rmi voting-app:frontend-${BUILD_NUMBER} || true
-                        docker rmi voting-app:backend-${BUILD_NUMBER} || true
-                        docker rmi voting-app:worker-${BUILD_NUMBER} || true
-                        docker system prune -f || true
-                    '''
-                } catch (Exception e) {
-                    echo "Cleanup failed: ${e.getMessage()}"
-                }
-            }
+            echo "=== Pipeline Cleanup ==="
+            sh '''
+                # Clean up local Docker images
+                docker rmi ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} || true
+                docker rmi ${ECR_REPOSITORY}:backend-${IMAGE_TAG} || true
+                docker rmi ${ECR_REPOSITORY}:worker-${IMAGE_TAG} || true
+                docker system prune -f || true
+            '''
         }
         success {
             echo "✅ Pipeline completed successfully!"
