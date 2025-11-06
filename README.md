@@ -1,6 +1,6 @@
 # Three-Tier Voting Application
 
-A simple three-tier web application demonstrating modern application architecture.
+A simple three-tier web application demonstrating modern application architecture with Jenkins CI/CD pipeline.
 
 ## Architecture
 
@@ -50,40 +50,38 @@ This application follows a classic three-tier architecture:
 - **Redis**: Message queue for vote processing
 - **PostgreSQL**: Persistent storage for votes
 
-## Running the Application
+## CI/CD Pipeline
 
-### Prerequisites
-- Python 3.x
-- Node.js
-- .NET 6.0
-- Redis server
-- PostgreSQL database
+### Jenkins Pipeline Features
+- **Docker-in-Docker (DinD)**: Custom Jenkins agent with Docker, AWS CLI, kubectl
+- **Parallel Builds**: Frontend, Backend, Worker built simultaneously
+- **ECR Integration**: Images pushed to AWS ECR
+- **EKS Deployment**: Automated deployment to Kubernetes cluster
 
-### Setup
+### Pipeline Stages
+1. **Environment Setup**: Verify tools (Docker, AWS CLI, kubectl)
+2. **Code Checkout**: Clone repository and verify structure
+3. **Build Images**: Build Docker images in parallel
+4. **Push to ECR**: Tag and push images to AWS ECR
+5. **Deploy to EKS**: Update manifests and deploy to Kubernetes
+6. **Verification**: Verify deployment status
 
-1. **Frontend**:
-   ```bash
-   cd frontend
-   pip install -r requirements.txt
-   python app.py
-   ```
+## Infrastructure
 
-2. **Backend**:
-   ```bash
-   cd backend
-   npm install
-   npm start
-   ```
+### AWS Resources
+- **ECR Repository**: `767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app`
+- **EKS Cluster**: `secure-dev-env-cluster`
+- **Region**: `us-west-2`
 
-3. **Worker**:
-   ```bash
-   cd worker
-   dotnet run
-   ```
+### Kubernetes Manifests
+- `k8s/frontend.yaml` - Flask frontend deployment and service
+- `k8s/backend.yaml` - Node.js backend deployment and service  
+- `k8s/worker.yaml` - .NET worker deployment
+- `k8s/database.yaml` - PostgreSQL and Redis deployments
 
-### Access Points
-- Voting Interface: http://localhost:5000
-- Results Display: http://localhost:4000
+## Access Points
+- Voting Interface: Frontend LoadBalancer URL
+- Results Display: Backend LoadBalancer URL
 
 ## Features
 
@@ -92,3 +90,5 @@ This application follows a classic three-tier architecture:
 - Live results updates
 - Scalable architecture
 - Language diversity (Python, Node.js, C#)
+- Automated CI/CD with Jenkins
+- Container orchestration with Kubernetes
