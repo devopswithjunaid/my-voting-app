@@ -23,7 +23,7 @@ pipeline {
                         if ! command -v aws &> /dev/null; then
                             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                             unzip awscliv2.zip
-                            ./aws/install --bin-dir /tmp/aws-cli --install-dir /tmp/aws-cli
+                            ./aws/install --bin-dir /tmp/aws-cli --install-dir /tmp/aws-cli --update
                             rm -rf awscliv2.zip aws/
                         fi
                         
@@ -35,9 +35,9 @@ pipeline {
                         fi
                         
                         echo "🔧 Tools Check:"
-                        docker --version || echo "❌ Docker not available - check Jenkins setup"
-                        /tmp/aws-cli/aws --version || echo "❌ AWS CLI failed"
-                        /tmp/kubectl version --client || echo "❌ kubectl failed"
+                        docker --version
+                        /tmp/aws-cli/aws --version
+                        /tmp/kubectl version --client
                         
                         echo "✅ Setup completed"
                     '''
@@ -142,8 +142,11 @@ pipeline {
         always {
             sh 'docker system prune -f || true'
         }
+        success {
+            echo "✅ Pipeline completed successfully!"
+        }
         failure {
-            echo "❌ Pipeline failed! Check Docker access in Jenkins container."
+            echo "❌ Pipeline failed!"
         }
     }
 }
