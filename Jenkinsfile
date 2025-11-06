@@ -1,59 +1,88 @@
 pipeline {
-    agent any
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: jenkins-agent
+    image: devopswithjunaid/jenkins-agent-dind:latest
+    command:
+    - sleep
+    args:
+    - 99d
+    env:
+    - name: DOCKER_HOST
+      value: tcp://localhost:2376
+    - name: DOCKER_TLS_CERTDIR
+      value: /certs
+    - name: DOCKER_TLS_VERIFY
+      value: "1"
+    - name: DOCKER_CERT_PATH
+      value: /certs/client
+    volumeMounts:
+    - name: docker-certs
+      mountPath: /certs/client
+      readOnly: true
+  - name: docker
+    image: docker:dind
+    securityContext:
+      privileged: true
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: /certs
+    volumeMounts:
+    - name: docker-certs
+      mountPath: /certs/client
+  volumes:
+  - name: docker-certs
+    emptyDir: {}
+"""
+        }
+    }
     
     environment {
         AWS_DEFAULT_REGION = 'us-west-2'
         ECR_REGISTRY = '767225687948.dkr.ecr.us-west-2.amazonaws.com'
         EKS_CLUSTER_NAME = 'secure-dev-env-cluster'
-        PATH = "/tmp/aws-cli:/tmp:$PATH"
     }
     
     stages {
         stage('🔍 Environment Setup') {
             steps {
-                script {
-                    echo "=== ENVIRONMENT SETUP ==="
-                    sh '''
-                        echo "📋 System Info:"
-                        whoami
-                        pwd
-                        echo "Build: ${BUILD_NUMBER}"
-                        
-                        echo "🔧 Installing AWS CLI..."
-                        if ! command -v aws &> /dev/null; then
-                            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                            unzip awscliv2.zip
-                            ./aws/install --bin-dir /tmp/aws-cli --install-dir /tmp/aws-cli --update
-                            rm -rf awscliv2.zip aws/
-                        fi
-                        
-                        echo "🔧 Installing kubectl..."
-                        if ! command -v kubectl &> /dev/null; then
-                            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                            chmod +x kubectl
-                            mv kubectl /tmp/kubectl
-                        fi
-                        
-                        echo "🔧 Tools Check:"
-                        docker --version
-                        /tmp/aws-cli/aws --version
-                        /tmp/kubectl version --client
-                        
-                        echo "✅ Setup completed"
-                    '''
+                container('jenkins-agent') {
+                    script {
+                        echo "=== ENVIRONMENT SETUP ==="
+                        sh '''
+                            echo "📋 System Info:"
+                            whoami
+                            pwd
+                            echo "Build: ${BUILD_NUMBER}"
+                            
+                            echo "🔧 Tools Check:"
+                            docker --version
+                            aws --version
+                            kubectl version --client
+                            
+                            echo "✅ All tools ready from custom image!"
+                        '''
+                    }
                 }
             }
         }
         
         stage('📥 Checkout') {
             steps {
-                checkout scm
-                sh '''
-                    echo "📂 Repo Info:"
-                    git log --oneline -3
-                    ls -la
-                    find . -name "Dockerfile"
-                '''
+                container('jenkins-agent') {
+                    checkout scm
+                    sh '''
+                        echo "📂 Repo Info:"
+                        git log --oneline -3
+                        ls -la
+                        find . -name "Dockerfile"
+                    '''
+                }
             }
         }
         
@@ -61,26 +90,32 @@ pipeline {
             parallel {
                 stage('Frontend') {
                     steps {
-                        sh '''
-                            cd frontend
-                            docker build -t voting-app:frontend-${BUILD_NUMBER} .
-                        '''
+                        container('jenkins-agent') {
+                            sh '''
+                                cd frontend
+                                docker build -t voting-app:frontend-${BUILD_NUMBER} .
+                            '''
+                        }
                     }
                 }
                 stage('Backend') {
                     steps {
-                        sh '''
-                            cd backend
-                            docker build -t voting-app:backend-${BUILD_NUMBER} .
-                        '''
+                        container('jenkins-agent') {
+                            sh '''
+                                cd backend
+                                docker build -t voting-app:backend-${BUILD_NUMBER} .
+                            '''
+                        }
                     }
                 }
                 stage('Worker') {
                     steps {
-                        sh '''
-                            cd worker
-                            docker build -t voting-app:worker-${BUILD_NUMBER} .
-                        '''
+                        container('jenkins-agent') {
+                            sh '''
+                                cd worker
+                                docker build -t voting-app:worker-${BUILD_NUMBER} .
+                            '''
+                        }
                     }
                 }
             }
@@ -88,59 +123,67 @@ pipeline {
         
         stage('📤 Push to ECR') {
             steps {
-                withCredentials([aws(credentialsId: 'aws-credentials')]) {
-                    sh '''
-                        # ECR Login
-                        /tmp/aws-cli/aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                        
-                        # Tag and Push
-                        docker tag voting-app:frontend-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}
-                        docker tag voting-app:backend-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:backend-${BUILD_NUMBER}
-                        docker tag voting-app:worker-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}
-                        
-                        docker push ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}
-                        docker push ${ECR_REGISTRY}/voting-app:backend-${BUILD_NUMBER}
-                        docker push ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}
-                    '''
+                container('jenkins-agent') {
+                    withCredentials([aws(credentialsId: 'aws-credentials')]) {
+                        sh '''
+                            # ECR Login
+                            aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                            
+                            # Tag and Push
+                            docker tag voting-app:frontend-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}
+                            docker tag voting-app:backend-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:backend-${BUILD_NUMBER}
+                            docker tag voting-app:worker-${BUILD_NUMBER} ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}
+                            
+                            docker push ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}
+                            docker push ${ECR_REGISTRY}/voting-app:backend-${BUILD_NUMBER}
+                            docker push ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}
+                        '''
+                    }
                 }
             }
         }
         
         stage('🚀 Deploy to EKS') {
             steps {
-                withCredentials([aws(credentialsId: 'aws-credentials')]) {
-                    sh '''
-                        # Update kubeconfig
-                        /tmp/aws-cli/aws eks update-kubeconfig --region ${AWS_DEFAULT_REGION} --name ${EKS_CLUSTER_NAME}
-                        
-                        # Update manifests
-                        sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:frontend-.*|image: ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}|g" k8s/frontend.yaml
-                        sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:backend-.*|image: ${ECR_REGISTRY}/voting-app:backend-${BUILD_NUMBER}|g" k8s/backend.yaml
-                        sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:worker-.*|image: ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}|g" k8s/worker.yaml
-                        
-                        # Deploy
-                        /tmp/kubectl apply -f k8s/
-                        /tmp/kubectl rollout status deployment/frontend
-                        /tmp/kubectl rollout status deployment/backend
-                        /tmp/kubectl rollout status deployment/worker
-                    '''
+                container('jenkins-agent') {
+                    withCredentials([aws(credentialsId: 'aws-credentials')]) {
+                        sh '''
+                            # Update kubeconfig
+                            aws eks update-kubeconfig --region ${AWS_DEFAULT_REGION} --name ${EKS_CLUSTER_NAME}
+                            
+                            # Update manifests
+                            sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:frontend-.*|image: ${ECR_REGISTRY}/voting-app:frontend-${BUILD_NUMBER}|g" k8s/frontend.yaml
+                            sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:backend-.*|image: ${ECR_REGISTRY}/voting-app:backend-${BUILD_NUMBER}|g" k8s/backend.yaml
+                            sed -i "s|image: 767225687948.dkr.ecr.us-west-2.amazonaws.com/voting-app:worker-.*|image: ${ECR_REGISTRY}/voting-app:worker-${BUILD_NUMBER}|g" k8s/worker.yaml
+                            
+                            # Deploy
+                            kubectl apply -f k8s/
+                            kubectl rollout status deployment/frontend
+                            kubectl rollout status deployment/backend
+                            kubectl rollout status deployment/worker
+                        '''
+                    }
                 }
             }
         }
         
         stage('📊 Verify') {
             steps {
-                sh '''
-                    /tmp/kubectl get pods
-                    /tmp/kubectl get svc
-                '''
+                container('jenkins-agent') {
+                    sh '''
+                        kubectl get pods
+                        kubectl get svc
+                    '''
+                }
             }
         }
     }
     
     post {
         always {
-            sh 'docker system prune -f || true'
+            container('jenkins-agent') {
+                sh 'docker system prune -f || true'
+            }
         }
         success {
             echo "✅ Pipeline completed successfully!"
