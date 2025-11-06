@@ -10,56 +10,59 @@ pipeline {
     }
     
     stages {
-        stage('Setup Environment') {
+        stage('Checkout & Prepare') {
+            steps {
+                checkout scm
+                sh '''
+                    echo "✅ Code checked out successfully"
+                    echo "Build Number: ${BUILD_NUMBER}"
+                    ls -la
+                    find . -name "Dockerfile" -type f
+                '''
+            }
+        }
+        
+        stage('Install Docker & Tools') {
             steps {
                 sh '''
-                    echo "=== Setting up Docker and AWS CLI ==="
+                    echo "=== Installing Docker and Tools ==="
                     
-                    # Check if running as root or with sudo access
-                    if [ "$EUID" -eq 0 ] || sudo -n true 2>/dev/null; then
-                        echo "✅ Have root/sudo access"
+                    # Install Docker using get-docker script
+                    if ! command -v docker &> /dev/null; then
+                        echo "Installing Docker..."
+                        curl -fsSL https://get.docker.com -o get-docker.sh
+                        sh get-docker.sh
                         
-                        # Install Docker if not present
-                        if ! command -v docker &> /dev/null; then
-                            echo "Installing Docker..."
-                            curl -fsSL https://get.docker.com -o get-docker.sh
-                            sudo sh get-docker.sh
-                            sudo usermod -aG docker jenkins || true
-                            sudo systemctl start docker || true
-                        else
-                            echo "✅ Docker already installed"
-                        fi
+                        # Add jenkins user to docker group
+                        usermod -aG docker jenkins || true
                         
-                        # Install AWS CLI if not present
-                        if ! command -v aws &> /dev/null; then
-                            echo "Installing AWS CLI..."
-                            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                            unzip -o awscliv2.zip
-                            sudo ./aws/install --update
-                        else
-                            echo "✅ AWS CLI already installed"
-                        fi
+                        # Start Docker service
+                        service docker start || systemctl start docker || true
                         
-                        # Install kubectl if not present
-                        if ! command -v kubectl &> /dev/null; then
-                            echo "Installing kubectl..."
-                            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                            chmod +x kubectl
-                            sudo mv kubectl /usr/local/bin/
-                        else
-                            echo "✅ kubectl already installed"
-                        fi
-                        
+                        # Test Docker
+                        docker --version
                     else
-                        echo "❌ No sudo access - trying alternative approach"
-                        
-                        # Try to use existing Docker socket
-                        if [ -S /var/run/docker.sock ]; then
-                            echo "✅ Docker socket found - will try to use it"
-                        else
-                            echo "❌ No Docker socket available"
-                            exit 1
-                        fi
+                        echo "✅ Docker already installed"
+                    fi
+                    
+                    # Install AWS CLI
+                    if ! command -v aws &> /dev/null; then
+                        echo "Installing AWS CLI..."
+                        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                        unzip -o awscliv2.zip
+                        ./aws/install --update
+                    else
+                        echo "✅ AWS CLI already installed"
+                    fi
+                    
+                    # Install kubectl
+                    if ! command -v kubectl &> /dev/null; then
+                        echo "Installing kubectl..."
+                        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                        chmod +x kubectl
+                        mv kubectl /usr/local/bin/
+                    else
+                        echo "✅ kubectl already installed"
                     fi
                 '''
             }
@@ -68,24 +71,15 @@ pipeline {
         stage('Verify Tools') {
             steps {
                 sh '''
-                    echo "=== Verifying installed tools ==="
-                    docker --version || echo "❌ Docker not working"
-                    aws --version || echo "❌ AWS CLI not working"
-                    kubectl version --client || echo "❌ kubectl not working"
+                    echo "=== Verifying Tools ==="
+                    docker --version
+                    aws --version
+                    kubectl version --client
                     
                     echo "=== Testing Docker ==="
-                    docker ps || echo "❌ Docker daemon not accessible"
-                '''
-            }
-        }
-        
-        stage('Checkout & Prepare') {
-            steps {
-                checkout scm
-                sh '''
-                    echo "=== Repository Structure ==="
-                    ls -la
-                    find . -name "Dockerfile" -type f
+                    docker ps || echo "Docker daemon starting..."
+                    sleep 5
+                    docker ps
                 '''
             }
         }
