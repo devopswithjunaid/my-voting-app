@@ -3,6 +3,7 @@ kind: Pod
 metadata:
   labels:
     jenkins: dind-agent
+  namespace: jenkins
 spec:
   serviceAccountName: jenkins
   nodeSelector:
@@ -12,7 +13,6 @@ spec:
       operator: "Equal"
       value: "true"
       effect: "NoSchedule"
-  namespace: jenkins
   securityContext:
     fsGroup: 1000
   initContainers:
