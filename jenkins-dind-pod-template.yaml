@@ -47,15 +47,13 @@ spec:
           mountPath: /home/jenkins/agent
 
     - name: dind
-      image: devopswithjunaid/jenkins-agent-dind:latest
+      image: docker:24.0-dind
       securityContext:
         privileged: true
         runAsUser: 0
       env:
         - name: DOCKER_TLS_CERTDIR
           value: ""
-        - name: DOCKER_HOST
-          value: "tcp://localhost:2375"
       args:
         - --insecure-registry=767225687948.dkr.ecr.us-west-2.amazonaws.com
         - --host=tcp://0.0.0.0:2375
