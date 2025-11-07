@@ -6,8 +6,7 @@ pipeline {
     }
     
     triggers {
-        cron('H/2 * * * *')  // Every 2 minutes
-        pollSCM('H/2 * * * *')  // Poll SCM every 2 minutes
+        pollSCM('H/2 * * * *')  // Check for changes every 2 minutes, trigger only if changes found
     }
     
     environment {
