@@ -5,6 +5,11 @@ pipeline {
         }
     }
     
+    triggers {
+        cron('H/2 * * * *')  // Every 2 minutes
+        pollSCM('H/2 * * * *')  // Poll SCM every 2 minutes
+    }
+    
     environment {
         AWS_DEFAULT_REGION = 'us-west-2'
         ECR_REGISTRY = '767225687948.dkr.ecr.us-west-2.amazonaws.com'
