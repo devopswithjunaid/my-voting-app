@@ -15,7 +15,7 @@ pipeline {
     }
     
     stages {
-        stage('Verify Environment') {
+        stage('Environment Setup') {
             steps {
                 container('tools') {
                     sh '''
@@ -33,13 +33,13 @@ pipeline {
                         echo "=== Docker Test ==="
                         sleep 15  # Wait for DinD to start
                         docker ps
-                        echo "✅ Docker is working!"
+                        echo "✅ Environment ready!"
                     '''
                 }
             }
         }
         
-        stage('Checkout Code') {
+        stage('Code Checkout') {
             steps {
                 container('tools') {
                     checkout scm
@@ -53,7 +53,7 @@ pipeline {
             }
         }
         
-        stage('ECR Login') {
+        stage('ECR Authentication') {
             steps {
                 container('tools') {
                     withCredentials([aws(credentialsId: 'aws-credentials')]) {
@@ -67,9 +67,9 @@ pipeline {
             }
         }
         
-        stage('Build Images') {
+        stage('Build Docker Images') {
             parallel {
-                stage('Build Frontend') {
+                stage('Frontend Build') {
                     steps {
                         container('tools') {
                             dir('frontend') {
@@ -77,13 +77,13 @@ pipeline {
                                     echo "=== Building Frontend ==="
                                     docker build -t ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} .
                                     docker tag ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}
-                                    echo "✅ Frontend image built: ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}"
+                                    echo "✅ Frontend built: ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}"
                                 '''
                             }
                         }
                     }
                 }
-                stage('Build Backend') {
+                stage('Backend Build') {
                     steps {
                         container('tools') {
                             dir('backend') {
@@ -91,13 +91,13 @@ pipeline {
                                     echo "=== Building Backend ==="
                                     docker build -t ${ECR_REPOSITORY}:backend-${IMAGE_TAG} .
                                     docker tag ${ECR_REPOSITORY}:backend-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}
-                                    echo "✅ Backend image built: ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}"
+                                    echo "✅ Backend built: ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}"
                                 '''
                             }
                         }
                     }
                 }
-                stage('Build Worker') {
+                stage('Worker Build') {
                     steps {
                         container('tools') {
                             dir('worker') {
@@ -105,7 +105,7 @@ pipeline {
                                     echo "=== Building Worker ==="
                                     docker build -t ${ECR_REPOSITORY}:worker-${IMAGE_TAG} .
                                     docker tag ${ECR_REPOSITORY}:worker-${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}
-                                    echo "✅ Worker image built: ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}"
+                                    echo "✅ Worker built: ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}"
                                 '''
                             }
                         }
@@ -114,7 +114,7 @@ pipeline {
             }
         }
         
-        stage('Push to ECR') {
+        stage('Push Images to ECR') {
             steps {
                 container('tools') {
                     sh '''
@@ -128,7 +128,7 @@ pipeline {
                         echo "Pushing Worker..."
                         docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}
                         
-                        echo "✅ All images pushed to ECR successfully!"
+                        echo "✅ All images pushed successfully!"
                     '''
                 }
             }
@@ -143,16 +143,12 @@ pipeline {
                             aws eks update-kubeconfig --region ${AWS_DEFAULT_REGION} --name ${EKS_CLUSTER_NAME}
                             
                             echo "=== Updating Kubernetes Manifests ==="
-                            # Update image tags in manifests
                             sed -i "s|image: .*voting-app:frontend.*|image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG}|g" k8s/frontend.yaml
                             sed -i "s|image: .*voting-app:backend.*|image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG}|g" k8s/backend.yaml
                             sed -i "s|image: .*voting-app:worker.*|image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG}|g" k8s/worker.yaml
                             
                             echo "=== Deploying to EKS ==="
-                            # Deploy database components first
                             kubectl apply -f k8s/database.yaml
-                            
-                            # Deploy application components
                             kubectl apply -f k8s/frontend.yaml
                             kubectl apply -f k8s/backend.yaml
                             kubectl apply -f k8s/worker.yaml
@@ -162,7 +158,7 @@ pipeline {
                             kubectl rollout status deployment/backend --timeout=300s || true
                             kubectl rollout status deployment/worker --timeout=300s || true
                             
-                            echo "✅ Deployment completed successfully!"
+                            echo "✅ Deployment completed!"
                         '''
                     }
                 }
@@ -181,10 +177,9 @@ pipeline {
                         kubectl get deployments
                         
                         echo "=== Service URLs ==="
-                        kubectl get svc -o wide | grep LoadBalancer || echo "No LoadBalancer services found"
+                        kubectl get svc -o wide | grep LoadBalancer || echo "No LoadBalancer services"
                         
-                        echo "=== Application Health Check ==="
-                        kubectl get pods | grep -E "(frontend|backend|worker)" || echo "Application pods not found"
+                        echo "✅ Verification completed!"
                     '''
                 }
             }
@@ -196,28 +191,22 @@ pipeline {
             container('tools') {
                 echo "=== Pipeline Cleanup ==="
                 sh '''
-                    # Clean up local Docker images
                     docker rmi ${ECR_REPOSITORY}:frontend-${IMAGE_TAG} || true
                     docker rmi ${ECR_REPOSITORY}:backend-${IMAGE_TAG} || true
                     docker rmi ${ECR_REPOSITORY}:worker-${IMAGE_TAG} || true
-                    
-                    # Clean up ECR tagged images
                     docker rmi ${ECR_REGISTRY}/${ECR_REPOSITORY}:frontend-${IMAGE_TAG} || true
                     docker rmi ${ECR_REGISTRY}/${ECR_REPOSITORY}:backend-${IMAGE_TAG} || true
                     docker rmi ${ECR_REGISTRY}/${ECR_REPOSITORY}:worker-${IMAGE_TAG} || true
-                    
-                    # System cleanup
                     docker system prune -f || true
-                    
                     echo "✅ Cleanup completed"
                 '''
             }
         }
         success {
-            echo "🎉 Complete CI/CD Pipeline successful! Application deployed to EKS!"
+            echo "🎉 CI/CD Pipeline successful! Application deployed to EKS!"
         }
         failure {
-            echo "❌ Pipeline failed - check logs above for details"
+            echo "❌ Pipeline failed - check logs for details"
         }
     }
 }
